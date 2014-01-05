@@ -135,7 +135,7 @@ function process_pool() {
 function blackhole_handler() {
 	TEMPDIR="$1"
 	CALLBACKFUNCINNER="$2"
-	CALLBACKFUNCOUTER="$3" ##add the removal of .lock0 if no other locks are present here and removal of part itself
+	CALLBACKFUNCOUTER="$3"
 	SCANDELAY=$4
 
 	BYTECOUNT_PREV=0
