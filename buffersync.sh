@@ -35,7 +35,7 @@ function sync1() {
 		if [[ $( echo $NEXTLOCK1 | wc -c ) -gt 0 ]]; then
 			PART1=$( echo $NEXTLOCK1 | sed -e 's/.flock.*//' )
 			echo "syncing $PART1 to USB"
-			sleep 10
+			sleep 10 ##Simulate slow connection
 			rsync -tuq --modify-window=1 $PART1 /mnt/usb && rm $NEXTLOCK1 2> /dev/null
 		fi;
 		LOCKS1COUNT=$(eval $COUNTLOCKS1)
