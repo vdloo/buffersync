@@ -10,6 +10,9 @@ KEYFILE="~/.ssh/id_rsa.crt"
 SPLITSIZE="50m"
 PARTSDIR="~/Downloads/backuptemp"
 
+#Threshold of space left in dir to pause the archiving process (kilobytes)
+SPACELEFTTHRESHOLD="500000" #approx 500M
+
 ENCRYPTDIR="echo \"Encrypting directory ${ENCRYPTTARGET}\";tar --ignore-failed -cpj $ENCRYPTTARGET 2>/dev/null | openssl aes-256-cbc -kfile $KEYFILE | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.; echo \"Finished encrypting $ENCRYPTTARGET\""
 
 function sync1() {
@@ -73,6 +76,16 @@ function process_file() {
 
 #Callback that persists every iteration of the black hole while loop
 function process_pool() {
+	#Checks if we want to pause the archiving until there is enough space available
+	SPACELEFT=$(df -k $PARTSDIR | awk 'END{print $(NF-2)}')
+	if [[ $SPACELEFT -lt $SPACELETTHRESHOLD ]]; then
+		#Pauses archiving process chain (like ^z)
+		kill -STOP WAITPID
+	else
+		#Continues archiving process chain (like fg)
+		kill -CONT WAITPID
+	fi;
+
 	if ! mkdir $PARTSDIR/sync1.plock 2> /dev/null ; then
 		if [[ "$VERBOSE" == "-v" ]]; then
 			echo "Sync 1 in progress.."
