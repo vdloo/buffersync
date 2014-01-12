@@ -9,7 +9,7 @@ KEYFILE="~/.ssh/id_rsa.crt"
 KEYFILE=`eval echo $KEYFILE`
 
 #Size of parts
-SPLITSIZE="1m"
+SPLITSIZE="50m"
 PARTSDIR="~/Downloads/backuptemp"
 PARTSDIR=`eval echo $PARTSDIR`
 
@@ -17,9 +17,25 @@ PARTSDIR=`eval echo $PARTSDIR`
 SPACELEFTTHRESHOLD="512000" #approx 500M
 MINSTARTSPACE="512000"      #approx 500M
 
+#Clear up enough space before starting the backup
+function clearspace(){
+	BUPDIR="/mnt/lvmdisk/backup/$HOSTNAME"	
+	CLEARSCRIPT="mkdir -p $BUPDIR; while [ \"\$(df -k $BUPDIR | awk 'NR==2 {print \$4}')\" -lt \"104857600\" ] && [ \"\$(find $BUPDIR -type f -name \"*enc*\" | wc -l)\" -gt \"0\" ]; do rm \$(find $BUPDIR -type f | sed s/\.[^\.]*$// | sort | uniq | head -n 1)*; done"
+	ssh OASIS -x $CLEARSCRIPT
+
+	BUPDIR="/volume3/RAID1/backup/$HOSTNAME"
+	CLEARSCRIPT="mkdir -p $BUPDIR; while [ \"\$(df -k $BUPDIR | awk 'NR==2 {print \$4}')\" -lt \"10485760\" ] && [ \"\$(find $BUPDIR -type f -name \"*enc*\" | wc -l)\" -gt \"0\" ]; do rm \$(find $BUPDIR -type f | sed s/\.[^\.]*$// | sort | uniq | head -n 1)*; done"
+	ssh Beest -x $CLEARSCRIPT
+}
+
 function archive(){
 	echo "encrypting directory $ENCRYPTTARGET";
-	tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | openssl aes-256-cbc -kfile $KEYFILE | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
+	#Check if openssl exists, else just tar and split
+	if hash openssl 2>/dev/null; then
+		tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | openssl aes-256-cbc -kfile $KEYFILE | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
+	else
+		tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
+	fi;
 	echo "finished encrypting $ENCRYPTTARGET"
 }
 
@@ -34,9 +50,9 @@ function sync1() {
 		NEXTLOCK1=`find "$PARTSDIR" -type f -name "*flock1" 2> /dev/null | sort | head -n 1`
 		if [[ $( echo $NEXTLOCK1 | wc -c ) -gt 0 ]]; then
 			PART1=$( echo $NEXTLOCK1 | sed -e 's/.flock.*//' )
-			echo "syncing $PART1 to USB"
-			sleep 10 ##Simulate slow connection
-			rsync -tuq --modify-window=1 $PART1 /mnt/usb && rm $NEXTLOCK1 2> /dev/null
+			#echo "syncing $PART1 to USB"
+			#rsync -tuq --modify-window=1 $PART1 /mnt/usb/backup/$HOSTNAME && rm $NEXTLOCK1 2> /dev/null
+			rm $NEXTLOCK1 2> /dev/null
 		fi;
 		LOCKS1COUNT=$(eval $COUNTLOCKS1)
 	done;
@@ -54,7 +70,7 @@ function sync2() {
 		if [[ $( echo $NEXTLOCK2 | wc -c ) -gt 0 ]]; then
 			PART2=$( echo $NEXTLOCK2 | sed -e 's/.flock.*//' )
 			echo "syncing $PART2 to OASIS"
-			rsync -azq $PART2 OASIS:/mnt/lvmdisk/backup 2> /dev/null && rm $NEXTLOCK2 2> /dev/null
+			rsync -azq $PART2 OASIS:/mnt/lvmdisk/backup/$HOSTNAME 2> /dev/null && rm $NEXTLOCK2 2> /dev/null
 		fi;
 		LOCKS2COUNT=$(eval $COUNTLOCKS2)
 	done;
@@ -72,12 +88,17 @@ function sync3() {
 		if [[ $( echo $NEXTLOCK3 | wc -c ) -gt 0 ]]; then
 			PART3=$( echo $NEXTLOCK3 | sed -e 's/.flock.*//' )
 			echo "syncing $PART3 to Beest"
-			rsync -avq $PART3 Beest:/volume3/RAID1/backup 2> /dev/null && rm $NEXTLOCK3 2> /dev/null
+			rsync -avq $PART3 Beest:/volume3/RAID1/backup/$HOSTNAME 2> /dev/null && rm $NEXTLOCK3 2> /dev/null
 		fi;
 		LOCKS3COUNT=$(eval $COUNTLOCKS3)
 	done;
 	rm -rf "$PARTSDIR/sync3.plock"
 }
+
+declare -a SYNCFUNCTION
+SYNCFUNCTION[1]="sync1"
+SYNCFUNCTION[2]="sync2"
+SYNCFUNCTION[3]="sync3"
 
 function freespacelock() {
 	#Checks if we want to pause the archiving until there is enough space available
@@ -108,45 +129,25 @@ function freespacelock() {
 
 #Callback for the black hole handler
 function process_file() {
-	touch $1.flock1 $1.flock2 $1.flock3
+	for isynccounttouch in "${!SYNCFUNCTION[@]}"; do touch $1.flock$isynccounttouch; done;
 }
 
 #Callback that persists every iteration of the black hole while loop
 function process_pool() {
 	freespacelock
 
-	if ! mkdir $PARTSDIR/sync1.plock 2> /dev/null ; then
-		if [[ "$VERBOSE" == "-v" ]]; then
-			echo "sync 1 in progress.."
+	for isynccount in "${!SYNCFUNCTION[@]}"; do 
+		if ! mkdir $PARTSDIR/sync${isynccount}.plock 2> /dev/null ; then
+			if [[ "$VERBOSE" == "-v" ]]; then
+				echo "sync $isynccount in progress.."
+			fi;
+		else
+			if [[ "$VERBOSE" == "-v" ]]; then
+				echo "starting new sync$isynccount"
+			fi;
+			${SYNCFUNCTION[$isynccount]} &
 		fi;
-	else
-		if [[ "$VERBOSE" == "-v" ]]; then
-			echo "starting new sync1"
-		fi;
-		sync1 &
-	fi;
-
-	if ! mkdir $PARTSDIR/sync2.plock 2> /dev/null ; then
-		if [[ "$VERBOSE" == "-v" ]]; then
-			echo "sync 2 in progress.."
-		fi;
-	else
-		if [[ "$VERBOSE" == "-v" ]]; then
-			echo "starting new sync2"
-		fi;
-		sync2 &
-	fi;
-
-	if ! mkdir $PARTSDIR/sync3.plock 2> /dev/null ; then
-		if [[ "$VERBOSE" == "-v" ]]; then
-			echo "sync 3 in progress.."
-		fi;
-	else
-		if [[ "$VERBOSE" == "-v" ]]; then
-			echo "starting new sync3"
-		fi;
-		sync3 &
-	fi;
+	done;
 
 	LOCKSLEFT=`find "$PARTSDIR" -type f -name "*flock0" 2> /dev/null | wc -l`
 	if [[ $LOCKSLEFT -gt 0 ]]; then
@@ -259,6 +260,8 @@ mkdir -p $PARTSDIR
 SPACELEFT=$(df -k $PARTSDIR | awk 'END{print $(NF-2)}')
 if [[ $SPACELEFT -gt $MINSTARTSPACE ]]; then
 	rm -R $PARTSDIR/*plock 2> /dev/null
+	#Delete old backups for space if necesarry
+	clearspace 
 
 	#Initialize the pool handler
 	SYNCBLACKHOLE="blackhole_handler $PARTSDIR process_file process_pool 10"
