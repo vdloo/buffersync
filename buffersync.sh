@@ -24,7 +24,7 @@ if mkdir buffersync.plock 2> /dev/null ; then
 		CLEARSCRIPT="mkdir -p $BUPDIR; while [ \"\$(df -k $BUPDIR | awk 'NR==2 {print \$4}')\" -lt \"104857600\" ] && [ \"\$(find $BUPDIR -type f -name \"*enc*\" | wc -l)\" -gt \"0\" ]; do rm \$(find $BUPDIR -type f | sed s/\.[^\.]*$// | sort | uniq | head -n 1)*; done"
 		ssh OASIS -x $CLEARSCRIPT
 
-		BUPDIR="/volume3/RAID1/backup/$HOSTNAME"
+		BUPDIR="/volume1/RAID5/other/backup/$HOSTNAME"
 		CLEARSCRIPT="mkdir -p $BUPDIR; while [ \"\$(df -k $BUPDIR | awk 'NR==2 {print \$4}')\" -lt \"10485760\" ] && [ \"\$(find $BUPDIR -type f -name \"*enc*\" | wc -l)\" -gt \"0\" ]; do rm \$(find $BUPDIR -type f | sed s/\.[^\.]*$// | sort | uniq | head -n 1)*; done"
 		ssh Beest -x $CLEARSCRIPT
 	}
@@ -33,9 +33,9 @@ if mkdir buffersync.plock 2> /dev/null ; then
 		echo "encrypting directory $ENCRYPTTARGET";
 		#Check if openssl exists, else just tar and split
 		if hash openssl 2>/dev/null; then
-			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | openssl aes-256-cbc -kfile $KEYFILE | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
+			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --exclude "~/Downloads" --exclude "~/video" --exclude "~/music" --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | openssl aes-256-cbc -kfile $KEYFILE | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
 		else
-			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
+			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --exclude "~/Downloads" --exclude "~/video" --exclude "~/music" --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
 		fi;
 		echo "finished encrypting $ENCRYPTTARGET"
 	}
@@ -74,7 +74,7 @@ if mkdir buffersync.plock 2> /dev/null ; then
 				rsync -azq $PART2 OASIS:/mnt/lvmdisk/backup/$HOSTNAME 2> /dev/null && rm $NEXTLOCK2 2> /dev/null
 			fi;
 			LOCKS2COUNT=$(eval $COUNTLOCKS2)
-			if ! ping -c 1 8.8.8.8 2> /dev/null; then 
+			if ! ping -c 1 8.8.8.8 > /dev/null 2>&1; then 
 				if [[ "$VERBOSE" == "-v" ]]; then
 					echo "no internet connection, waiting 10 seconds before trying again"
 				fi;
@@ -95,10 +95,10 @@ if mkdir buffersync.plock 2> /dev/null ; then
 			if [[ $( echo $NEXTLOCK3 | wc -c ) -gt 0 ]]; then
 				PART3=$( echo $NEXTLOCK3 | sed -e 's/.flock.*//' )
 				echo "syncing $PART3 to Beest"
-				rsync -avq $PART3 Beest:/volume3/RAID1/backup/$HOSTNAME 2> /dev/null && rm $NEXTLOCK3 2> /dev/null
+				rsync -avq $PART3 Beest:/volume1/RAID5/other/backup/$HOSTNAME 2> /dev/null && rm $NEXTLOCK3 2> /dev/null
 			fi;
 			LOCKS3COUNT=$(eval $COUNTLOCKS3)
-			if ! ping -c 1 8.8.8.8 2> /dev/null; then 
+			if ! ping -c 1 8.8.8.8 >/dev/null 2>&1; then 
 				if [[ "$VERBOSE" == "-v" ]]; then
 					echo "no internet connection, waiting 10 seconds before trying again"
 				fi;
