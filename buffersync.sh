@@ -33,9 +33,9 @@ if mkdir buffersync.plock 2> /dev/null ; then
 		echo "encrypting directory $ENCRYPTTARGET";
 		#Check if openssl exists, else just tar and split
 		if hash openssl 2>/dev/null; then
-			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --exclude "~/Downloads" --exclude "~/video" --exclude "~/music" --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | openssl aes-256-cbc -kfile $KEYFILE | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
+			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --exclude "$HOME/Downloads" --exclude "$HOME/video" --exclude "$HOME/music" --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | openssl aes-256-cbc -kfile $KEYFILE | split --suffix-length=5 -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
 		else
-			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --exclude "~/Downloads" --exclude "~/video" --exclude "~/music" --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | split -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
+			tar --exclude '$PARTSDIR/*' --exclude '$PARTSDIR' --exclude "$HOME/Downloads" --exclude "$HOME/video" --exclude "$HOME/music" --ignore-failed -cpj $ENCRYPTTARGET 2> /dev/null | split --suffix-length=5 -d -b $SPLITSIZE - $PARTSDIR/$(date "+%Y%m%d-%s").tar.bz2.enc.;
 		fi;
 		echo "finished encrypting $ENCRYPTTARGET"
 	}
@@ -256,7 +256,7 @@ if mkdir buffersync.plock 2> /dev/null ; then
 		WAITDELAY="$3"
 		archive &
 		WAITPID=$!
-		while ps -p $WAITPID > /dev/null || [ -d "$PARTSDIR/archive.plock" ] ; do 
+		while ps -p $WAITPID > /dev/null || [ -d "$PARTSDIR/archive.plock" ]; do 
 			if [[ "$VERBOSE" == "-v" ]]; then
 				echo "archive not finished yet, continuing with the callback loop";
 			fi;
@@ -278,7 +278,13 @@ if mkdir buffersync.plock 2> /dev/null ; then
 
 		#Initialize the pool handler
 		SYNCBLACKHOLE="blackhole_handler $PARTSDIR process_file process_pool 10"
-		wait_while "$ENCRYPTDIR" "$SYNCBLACKHOLE" 1; echo "now waiting for synchronization pool to be emptied"; wait && rm -R $PARTSDIR
+		wait_while "$ENCRYPTDIR" "$SYNCBLACKHOLE" 1; 
+		echo "now waiting for synchronization pool to be emptied"; 
+		while [ "$(find $PARTSDIR -type f -name "*flock0" | wc -l)" -gt "0" ]; do
+			process_pool
+			sleep 10
+		done;
+		wait && rm -R $PARTSDIR
 		echo "done synchronizing"
 		rm -R buffersync.plock 2> /dev/null;
 	else
